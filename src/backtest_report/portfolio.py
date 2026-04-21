@@ -415,3 +415,104 @@ def render_portfolio_stats(data: BacktestData, meta: BacktestMeta) -> SectionOut
 
     html = "\n".join(lines)
     return SectionOutput(section_id="portfolio_stats", html=html)
+
+
+def render_rolling_stats(data: BacktestData, meta: BacktestMeta) -> SectionOutput:
+    """Render rolling statistics charts.
+
+    - Rolling 252-day (1-year) Sharpe ratio
+    - Rolling 756-day (3-year) annualised return (only if >= 756 days of data)
+    - Conditional beta chart (only if benchmark_returns provided)
+
+    Returns SectionOutput with:
+        - section_id: "rolling_stats"
+        - figures: dict of available chart base64 PNGs
+        - html: div with img tags
+    """
+    apply_report_style()
+    returns = data.portfolio_returns
+
+    # Short-history warning
+    if len(returns) < 252:
+        warning_html = (
+            "<div class='br-warning-banner'>"
+            "⚠ Insufficient history for rolling statistics (minimum 1 year required)"
+            "</div>"
+        )
+        return SectionOutput(section_id="rolling_stats", html=warning_html)
+
+    figures = {}
+    html_parts = []
+
+    # --- Rolling 1-Year Sharpe ---
+    rolling_mean = returns.rolling(252).mean()
+    rolling_vol = returns.rolling(252).std()
+    rolling_sharpe = (rolling_mean * 252) / (rolling_vol * sqrt(252))
+
+    fig_sharpe, ax_sharpe = plt.subplots(figsize=(FIGURE_WIDTH, FIGURE_HEIGHT))
+    ax_sharpe.plot(rolling_sharpe.index, rolling_sharpe.values, color=POSITIVE_COLOR, linewidth=0.8)
+    ax_sharpe.axhline(y=0, color=NEUTRAL_COLOR, linestyle="--", linewidth=0.8, alpha=0.7)
+    ax_sharpe.set_title("Rolling 1-Year Sharpe Ratio")
+    ax_sharpe.set_ylabel("Sharpe")
+    ax_sharpe.set_xlabel("")
+    ax_sharpe.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f"{x:.2f}"))
+    _format_date_axis(ax_sharpe)
+    sharpe_base64 = fig_to_base64(fig_sharpe)
+    figures["rolling_sharpe"] = sharpe_base64
+    html_parts.append(
+        f'<div class="br-figure"><img src="data:image/png;base64,{sharpe_base64}" '
+        'alt="Rolling 1-Year Sharpe Ratio" style="width:100%;" /></div>'
+    )
+
+    # --- Rolling 3-Year Annualised Return (only if >= 756 days) ---
+    if len(returns) >= 756:
+        def _compound_annualised(x):
+            if len(x) < 2:
+                return float("nan")
+            return (1 + x).prod() ** (252 / len(x)) - 1
+
+        rolling_3y = returns.rolling(756).apply(_compound_annualised)
+
+        fig_3y, ax_3y = plt.subplots(figsize=(FIGURE_WIDTH, FIGURE_HEIGHT))
+        ax_3y.plot(rolling_3y.index, rolling_3y.values * 100, color=POSITIVE_COLOR, linewidth=0.8)
+        ax_3y.axhline(y=0, color=NEUTRAL_COLOR, linestyle="--", linewidth=0.8, alpha=0.7)
+        ax_3y.set_title("Rolling 3-Year Annualised Return")
+        ax_3y.set_ylabel("Return %")
+        ax_3y.set_xlabel("")
+        ax_3y.yaxis.set_major_formatter(
+            matplotlib.ticker.FuncFormatter(lambda x, _: f"{x:.1f}%")
+        )
+        _format_date_axis(ax_3y)
+        ret_3y_base64 = fig_to_base64(fig_3y)
+        figures["rolling_3y_return"] = ret_3y_base64
+        html_parts.append(
+            f'<div class="br-figure"><img src="data:image/png;base64,{ret_3y_base64}" '
+            'alt="Rolling 3-Year Annualised Return" style="width:100%;" /></div>'
+        )
+
+    # --- Beta to Benchmark (conditional) ---
+    if data.benchmark_returns is not None:
+        bm = data.benchmark_returns.reindex(returns.index).dropna()
+        # Align portfolio to benchmark index for covariance calculation
+        port_aligned = returns.reindex(bm.index)
+        rolling_cov = port_aligned.rolling(252).cov(bm)
+        rolling_var = bm.rolling(252).var()
+        rolling_beta = rolling_cov / rolling_var
+
+        fig_beta, ax_beta = plt.subplots(figsize=(FIGURE_WIDTH, FIGURE_HEIGHT))
+        ax_beta.plot(rolling_beta.index, rolling_beta.values, color=POSITIVE_COLOR, linewidth=0.8)
+        ax_beta.axhline(y=0, color=NEUTRAL_COLOR, linestyle="--", linewidth=0.8, alpha=0.7)
+        ax_beta.set_title("Rolling 1-Year Beta")
+        ax_beta.set_ylabel("Beta")
+        ax_beta.set_xlabel("")
+        ax_beta.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f"{x:.2f}"))
+        _format_date_axis(ax_beta)
+        beta_base64 = fig_to_base64(fig_beta)
+        figures["rolling_beta"] = beta_base64
+        html_parts.append(
+            f'<div class="br-figure"><img src="data:image/png;base64,{beta_base64}" '
+            'alt="Rolling 1-Year Beta" style="width:100%;" /></div>'
+        )
+
+    html = '<div class="br-rolling-stats">' + "".join(html_parts) + "</div>"
+    return SectionOutput(section_id="rolling_stats", html=html, figures=figures)

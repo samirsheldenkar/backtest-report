@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import pytest
 
 from backtest_report.models import BacktestData, SectionOutput
@@ -14,6 +17,7 @@ from backtest_report.portfolio import (
     render_monthly_returns,
     render_portfolio_pnl,
     render_portfolio_stats,
+    render_rolling_stats,
 )
 
 
@@ -209,3 +213,55 @@ class TestRenderPortfolioStats:
             assert "Total Return" in result.html
         finally:
             qs.stats.comp = orig
+
+
+class TestRenderRollingStats:
+    def test_returns_correct_section_id(
+        self, sample_backtest_data: BacktestData, sample_meta
+    ) -> None:
+        result = render_rolling_stats(sample_backtest_data, sample_meta)
+        assert result.section_id == "rolling_stats"
+
+    def test_includes_rolling_sharpe_figure(
+        self, sample_backtest_data: BacktestData, sample_meta
+    ) -> None:
+        result = render_rolling_stats(sample_backtest_data, sample_meta)
+        assert "rolling_sharpe" in result.figures
+
+    def test_base64_strings_valid(
+        self, sample_backtest_data: BacktestData, sample_meta
+    ) -> None:
+        result = render_rolling_stats(sample_backtest_data, sample_meta)
+        decoded = base64.b64decode(result.figures["rolling_sharpe"])
+        assert decoded.startswith(b"\x89PNG")
+
+    def test_warning_for_short_history(
+        self, sample_backtest_data: BacktestData, sample_meta
+    ) -> None:
+        # Create data with < 252 days
+        short_data = sample_backtest_data.model_copy(deep=True)
+        short_data.portfolio_returns = short_data.portfolio_returns.iloc[:100]
+        result = render_rolling_stats(short_data, sample_meta)
+        assert "⚠ Insufficient history" in result.html
+        assert result.figures == {}
+
+    def test_without_benchmark_omits_beta_chart(
+        self, sample_backtest_data: BacktestData, sample_meta
+    ) -> None:
+        result = render_rolling_stats(sample_backtest_data, sample_meta)
+        assert "rolling_beta" not in result.figures
+        # Should still have sharpe
+        assert "rolling_sharpe" in result.figures
+
+    def test_with_benchmark_includes_beta_chart(
+        self, sample_backtest_data: BacktestData, sample_meta
+    ) -> None:
+        # Add benchmark returns
+        bm_data = sample_backtest_data.model_copy(deep=True)
+        bm_returns = pd.Series(
+            np.random.randn(len(bm_data.portfolio_returns)) * 0.01,
+            index=bm_data.portfolio_returns.index,
+        )
+        bm_data.benchmark_returns = bm_returns
+        result = render_rolling_stats(bm_data, sample_meta)
+        assert "rolling_beta" in result.figures
