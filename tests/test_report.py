@@ -111,6 +111,8 @@ class TestSectionRenderingPipeline:
                 "rolling_stats",
                 "instrument_pnl",
                 "instrument_table",
+                "position_snapshot",
+                "attribution",
                 "appendix",
             ],
         )
