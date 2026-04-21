@@ -13,6 +13,7 @@ from backtest_report.portfolio import (
     fig_to_base64,
     render_monthly_returns,
     render_portfolio_pnl,
+    render_portfolio_stats,
 )
 
 
@@ -157,3 +158,54 @@ class TestFormatReturn:
 
     def test_zero_return_formatted(self) -> None:
         assert _format_return(0.0) == "+0.0%"
+
+
+class TestRenderPortfolioStats:
+    def test_returns_correct_section_id(
+        self, sample_backtest_data: BacktestData, sample_meta
+    ) -> None:
+        result = render_portfolio_stats(sample_backtest_data, sample_meta)
+        assert result.section_id == "portfolio_stats"
+
+    def test_html_contains_table(
+        self, sample_backtest_data: BacktestData, sample_meta
+    ) -> None:
+        result = render_portfolio_stats(sample_backtest_data, sample_meta)
+        assert "<table" in result.html
+        assert "br-portfolio-stats" in result.html
+
+    def test_contains_all_15_metrics(
+        self, sample_backtest_data: BacktestData, sample_meta
+    ) -> None:
+        result = render_portfolio_stats(sample_backtest_data, sample_meta)
+        expected = [
+            "Total Return", "CAGR", "Annualised Vol", "Sharpe Ratio",
+            "Sortino Ratio", "Calmar Ratio", "Max Drawdown", "Max DD Duration",
+            "Win Rate", "Profit Factor", "Avg Win / Avg Loss",
+            "Skewness", "Kurtosis", "Best Day", "Worst Day",
+        ]
+        for metric in expected:
+            assert metric in result.html
+
+    def test_metric_values_are_reasonable(
+        self, sample_backtest_data: BacktestData, sample_meta
+    ) -> None:
+        result = render_portfolio_stats(sample_backtest_data, sample_meta)
+        html = result.html
+        # Vol should be around 15% (from fixture generation)
+        assert "14." in html or "15." in html or "16." in html
+
+    def test_graceful_degradation_mock_qs_failure(
+        self, sample_backtest_data: BacktestData, sample_meta
+    ) -> None:
+        # Monkey-patch qs.stats to raise errors, verify fallback works
+        import quantstats as qs
+
+        orig = qs.stats.comp
+        qs.stats.comp = lambda *a, **k: (_ for _ in ()).throw(Exception("mock"))
+        try:
+            result = render_portfolio_stats(sample_backtest_data, sample_meta)
+            assert result.section_id == "portfolio_stats"
+            assert "Total Return" in result.html
+        finally:
+            qs.stats.comp = orig

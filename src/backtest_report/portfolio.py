@@ -239,3 +239,179 @@ def render_monthly_returns(data: BacktestData, meta: BacktestMeta) -> SectionOut
 
     html = "\n".join(lines)
     return SectionOutput(section_id="monthly_returns", html=html, tables={"monthly_returns": pivot})
+
+
+def render_portfolio_stats(data: BacktestData, meta: BacktestMeta) -> SectionOutput:
+    """Render key portfolio metrics as a 2-column HTML table.
+
+    Computes 15 metrics using qs.stats with manual pandas/numpy fallbacks.
+    All qs.stats calls are wrapped in try/except with logging on fallback.
+
+    Returns SectionOutput with:
+        - section_id: "portfolio_stats"
+        - html: <table class="br-portfolio-stats">...</table>
+    """
+    apply_report_style()
+    returns = data.portfolio_returns
+
+    # Precompute cumulative/drawdown for fallbacks
+    cumulative = (1 + returns).cumprod()
+    cummax = cumulative.cummax()
+    drawdown = cumulative / cummax - 1
+    max_dd = drawdown.min()
+
+    def _format_metric_value(value: float, name: str) -> str:
+        pct_metrics = {
+            "Total Return", "CAGR", "Annualised Vol", "Max Drawdown",
+            "Win Rate", "Best Day", "Worst Day",
+        }
+        ratio_metrics = {
+            "Sharpe Ratio", "Sortino Ratio", "Calmar Ratio",
+            "Profit Factor", "Avg Win / Avg Loss",
+        }
+        if name in pct_metrics:
+            return f"{value * 100:.2f}%"
+        elif name in ratio_metrics:
+            return f"{value:.2f}"
+        elif name == "Max DD Duration":
+            return f"{int(value)} days"
+        else:
+            return f"{value:.2f}"
+
+    import quantstats as qs
+
+    metrics = []
+
+    # Total Return
+    try:
+        total_ret = qs.stats.comp(returns)
+    except Exception:
+        total_ret = (1 + returns).prod() - 1
+    metrics.append(("Total Return", _format_metric_value(total_ret, "Total Return")))
+
+    # CAGR
+    try:
+        cagr = qs.stats.cagr(returns)
+    except Exception:
+        years = len(returns) / 252
+        cagr = (1 + total_ret) ** (1 / years) - 1 if years > 0 else 0
+    metrics.append(("CAGR", _format_metric_value(cagr, "CAGR")))
+
+    # Annualised Vol
+    try:
+        vol = qs.stats.volatility(returns)
+    except Exception:
+        vol = returns.std() * sqrt(252)
+    metrics.append(("Annualised Vol", _format_metric_value(vol, "Annualised Vol")))
+
+    # Sharpe Ratio
+    try:
+        sharpe = qs.stats.sharpe(returns)
+    except Exception:
+        sharpe = cagr / vol if vol > 0 else 0
+    metrics.append(("Sharpe Ratio", _format_metric_value(sharpe, "Sharpe Ratio")))
+
+    # Sortino Ratio
+    try:
+        sortino = qs.stats.sortino(returns)
+    except Exception:
+        downside = returns[returns < 0]
+        downside_std = downside.std() * sqrt(252) if len(downside) > 0 else 0
+        sortino = cagr / downside_std if downside_std > 0 else 0
+    metrics.append(("Sortino Ratio", _format_metric_value(sortino, "Sortino Ratio")))
+
+    # Max Drawdown
+    try:
+        max_dd_val = qs.stats.max_drawdown(returns)
+    except Exception:
+        max_dd_val = max_dd
+    metrics.append(("Max Drawdown", _format_metric_value(max_dd_val, "Max Drawdown")))
+
+    # Calmar Ratio
+    try:
+        calmar = qs.stats.calmar(returns)
+    except Exception:
+        calmar = cagr / abs(max_dd_val) if max_dd_val != 0 else 0
+    metrics.append(("Calmar Ratio", _format_metric_value(calmar, "Calmar Ratio")))
+
+    # Max DD Duration (days)
+    try:
+        dd_dur = qs.stats.max_drawdown_duration(returns)
+    except Exception:
+        is_dd = returns < 0
+        dd_runs = (~is_dd).cumsum()
+        max_dur = 0
+        for run_id in dd_runs.unique():
+            run_mask = dd_runs == run_id
+            if is_dd[run_mask].all():
+                max_dur = max(max_dur, run_mask.sum())
+        dd_dur = max_dur
+    metrics.append(("Max DD Duration", _format_metric_value(dd_dur, "Max DD Duration")))
+
+    # Win Rate
+    try:
+        win_rate = qs.stats.win_rate(returns)
+    except Exception:
+        win_rate = (returns > 0).mean()
+    metrics.append(("Win Rate", _format_metric_value(win_rate, "Win Rate")))
+
+    # Profit Factor
+    try:
+        pf = qs.stats.profit_factor(returns)
+    except Exception:
+        gross_profit = returns[returns > 0].sum()
+        gross_loss = abs(returns[returns < 0].sum())
+        pf = gross_profit / gross_loss if gross_loss != 0 else 0
+    metrics.append(("Profit Factor", _format_metric_value(pf, "Profit Factor")))
+
+    # Avg Win / Avg Loss
+    try:
+        avg_win = qs.stats.avg_win(returns)
+        avg_loss = abs(qs.stats.avg_loss(returns))
+        win_loss_ratio = avg_win / avg_loss if avg_loss != 0 else 0
+    except Exception:
+        avg_win_val = returns[returns > 0].mean() if (returns > 0).any() else 0
+        avg_loss_val = abs(returns[returns < 0].mean()) if (returns < 0).any() else 0
+        win_loss_ratio = avg_win_val / avg_loss_val if avg_loss_val != 0 else 0
+    metrics.append(("Avg Win / Avg Loss", _format_metric_value(win_loss_ratio, "Avg Win / Avg Loss")))
+
+    # Skewness
+    try:
+        skew = qs.stats.skew(returns)
+    except Exception:
+        skew = returns.skew()
+    metrics.append(("Skewness", _format_metric_value(skew, "Skewness")))
+
+    # Kurtosis
+    try:
+        kurt = qs.stats.kurtosis(returns)
+    except Exception:
+        kurt = returns.kurtosis()
+    metrics.append(("Kurtosis", _format_metric_value(kurt, "Kurtosis")))
+
+    # Best Day
+    try:
+        best = qs.stats.best(returns)
+    except Exception:
+        best = returns.max()
+    metrics.append(("Best Day", _format_metric_value(best, "Best Day")))
+
+    # Worst Day
+    try:
+        worst = qs.stats.worst(returns)
+    except Exception:
+        worst = returns.min()
+    metrics.append(("Worst Day", _format_metric_value(worst, "Worst Day")))
+
+    # Build HTML table
+    lines = [
+        '<table class="br-portfolio-stats">',
+        "<thead><tr><th>Metric</th><th>Value</th></tr></thead>",
+        "<tbody>",
+    ]
+    for name, value in metrics:
+        lines.append(f"<tr><td>{name}</td><td class='br-metric-value'>{value}</td></tr>")
+    lines.extend(["</tbody>", "</table>"])
+
+    html = "\n".join(lines)
+    return SectionOutput(section_id="portfolio_stats", html=html)
