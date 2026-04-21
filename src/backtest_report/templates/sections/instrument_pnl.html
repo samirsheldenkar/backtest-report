@@ -1,0 +1,11 @@
+{# instrument_pnl.html — Per-instrument PnL small multiples #}
+<div class="br-instrument-pnl">
+  {% if figure %}
+  <figure class="br-figure">
+    <img src="data:image/png;base64,{{ figure }}" alt="Instrument P&amp;L" style="width:100%;" />
+    <figcaption class="br-figure-caption">Per-instrument cumulative P&amp;L — sorted by total contribution</figcaption>
+  </figure>
+  {% else %}
+  <p class="br-muted">Instrument P&amp;L data not available.</p>
+  {% endif %}
+</div>

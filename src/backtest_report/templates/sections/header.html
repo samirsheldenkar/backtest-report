@@ -1,0 +1,42 @@
+{# header.html — Dark banner with experiment metadata #}
+<div class="br-header">
+  <h1>{{ config.strategy_name | e }}</h1>
+  <div class="br-header-meta">
+    <div class="br-header-meta-row">
+      <span class="br-header-meta-label">Experiment ID</span>
+      <span class="br-header-meta-value">{{ config.experiment_id | e }}</span>
+    </div>
+    <div class="br-header-meta-row">
+      <span class="br-header-meta-label">Engine</span>
+      <span class="br-header-meta-value">{{ config.engine | e }}{% if config.engine_version %} v{{ config.engine_version | e }}{% endif %}</span>
+    </div>
+    <div class="br-header-meta-row">
+      <span class="br-header-meta-label">Period</span>
+      <span class="br-header-meta-value">{{ config.start_date }} → {{ config.end_date }}</span>
+    </div>
+    <div class="br-header-meta-row">
+      <span class="br-header-meta-label">Capital</span>
+      <span class="br-header-meta-value">{{ config.currency | e }} {{ "%,.0f" | format(config.capital) }}</span>
+    </div>
+    <div class="br-header-meta-row">
+      <span class="br-header-meta-label">Risk Target</span>
+      <span class="br-header-meta-value">{{ "%.1f"| format(config.risk_target_annual_pct) }}% annualised</span>
+    </div>
+    <div class="br-header-meta-row">
+      <span class="br-header-meta-label">Instruments</span>
+      <span class="br-header-meta-value">{{ config.instrument_universe | join(', ') | e }}</span>
+    </div>
+    {% if config.git_commit %}
+    <div class="br-header-meta-row">
+      <span class="br-header-meta-label">Git Commit</span>
+      <span class="br-header-meta-value">{{ config.git_commit | e }}</span>
+    </div>
+    {% endif %}
+    {% if generated_at %}
+    <div class="br-header-meta-row">
+      <span class="br-header-meta-label">Generated</span>
+      <span class="br-header-meta-value">{{ generated_at | e }}</span>
+    </div>
+    {% endif %}
+  </div>
+</div>

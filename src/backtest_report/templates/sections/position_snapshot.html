@@ -1,0 +1,11 @@
+{# position_snapshot.html — Time × instrument heatmap #}
+<div class="br-heatmap">
+  {% if figure %}
+  <figure class="br-figure">
+    <img src="data:image/png;base64,{{ figure }}" alt="Position Heatmap" style="width:100%;" />
+    <figcaption class="br-figure-caption">Position sizes over time — diverging colour scale</figcaption>
+  </figure>
+  {% else %}
+  <p class="br-muted">Position data not available.</p>
+  {% endif %}
+</div>

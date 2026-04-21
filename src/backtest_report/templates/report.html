@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Backtest Report — {{ meta.config.experiment_id }}</title>
+  <style>
+    /* Inlined CSS — loaded relative to this file's location */
+    {% include "style.css" %}
+    /* Custom CSS override */
+    {% if custom_css %}
+    {{ custom_css | safe }}
+    {% endif %}
+  </style>
+</head>
+<body>
+
+  {# Running header elements (used by @page CSS) #}
+  <div class="br-running-header" style="display:none;"
+       data-experiment-id="{{ meta.config.experiment_id }}"
+       data-report-version="{{ meta.report_version }}"
+       data-generated-at="{{ meta.generated_at.strftime('%Y-%m-%d %H:%M:%S') }}">
+  </div>
+
+  {# ── Header section ──────────────────────────────────────────────────────── #}
+  {% if sections.header %}
+  <section id="section-header">
+    {{ sections.header.html | safe }}
+  </section>
+  {% endif %}
+
+  {# ── Portfolio PnL ────────────────────────────────────────────────────────── #}
+  {% if sections.portfolio_pnl %}
+  <section id="section-portfolio-pnl" class="br-section">
+    <h2>Cumulative Returns</h2>
+    {{ sections.portfolio_pnl.html | safe }}
+  </section>
+  {% endif %}
+
+  {# ── Monthly Returns ─────────────────────────────────────────────────────── #}
+  {% if sections.monthly_returns %}
+  <section id="section-monthly-returns" class="br-section">
+    <h2>Monthly Returns</h2>
+    {{ sections.monthly_returns.html | safe }}
+  </section>
+  {% endif %}
+
+  {# ── Portfolio Stats ─────────────────────────────────────────────────────── #}
+  {% if sections.portfolio_stats %}
+  <section id="section-portfolio-stats" class="br-section">
+    <h2>Key Metrics</h2>
+    {{ sections.portfolio_stats.html | safe }}
+  </section>
+  {% endif %}
+
+  {# ── Rolling Stats ───────────────────────────────────────────────────────── #}
+  {% if sections.rolling_stats %}
+  <section id="section-rolling-stats" class="br-section">
+    <h2>Rolling Statistics</h2>
+    {{ sections.rolling_stats.html | safe }}
+  </section>
+  {% endif %}
+
+  {# ── Instrument PnL ──────────────────────────────────────────────────────── #}
+  {% if sections.instrument_pnl %}
+  <section id="section-instrument-pnl" class="br-section">
+    <h2>Instrument P&amp;L</h2>
+    {{ sections.instrument_pnl.html | safe }}
+  </section>
+  {% endif %}
+
+  {# ── Instrument Table ────────────────────────────────────────────────────── #}
+  {% if sections.instrument_table %}
+  <section id="section-instrument-table" class="br-section">
+    <h2>Per-Instrument Statistics</h2>
+    {{ sections.instrument_table.html | safe }}
+  </section>
+  {% endif %}
+
+  {# ── Position Snapshot ───────────────────────────────────────────────────── #}
+  {% if sections.position_snapshot %}
+  <section id="section-position-snapshot" class="br-section">
+    <h2>Position Snapshot</h2>
+    {{ sections.position_snapshot.html | safe }}
+  </section>
+  {% endif %}
+
+  {# ── Attribution ─────────────────────────────────────────────────────────── #}
+  {% if sections.attribution %}
+  <section id="section-attribution" class="br-section">
+    <h2>Return Attribution</h2>
+    {{ sections.attribution.html | safe }}
+  </section>
+  {% endif %}
+
+  {# ── Appendix ────────────────────────────────────────────────────────────── #}
+  {% if sections.appendix %}
+  <section id="section-appendix" class="br-section">
+    <h2>Appendix</h2>
+    {{ sections.appendix.html | safe }}
+  </section>
+  {% endif %}
+
+</body>
+</html>

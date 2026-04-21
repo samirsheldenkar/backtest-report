@@ -1,0 +1,15 @@
+{# portfolio.html — Equity curve + drawdown charts #}
+<div class="br-portfolio-pnl">
+  {% if figures.equity_curve %}
+  <figure class="br-figure">
+    <img src="data:image/png;base64,{{ figures.equity_curve }}" alt="Cumulative Returns" style="width:100%;" />
+    <figcaption class="br-figure-caption">Cumulative returns — growth of $1</figcaption>
+  </figure>
+  {% endif %}
+  {% if figures.drawdown %}
+  <figure class="br-figure">
+    <img src="data:image/png;base64,{{ figures.drawdown }}" alt="Drawdown" style="width:100%;" />
+    <figcaption class="br-figure-caption">Underwater plot — drawdown over time</figcaption>
+  </figure>
+  {% endif %}
+</div>

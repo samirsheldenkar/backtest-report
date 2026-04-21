@@ -1,0 +1,18 @@
+{# attribution.html — Return attribution by instrument and by sector #}
+<div class="br-attribution">
+  {% if figures.by_instrument %}
+  <figure class="br-figure">
+    <img src="data:image/png;base64,{{ figures.by_instrument }}" alt="Attribution by Instrument" style="width:100%;" />
+    <figcaption class="br-figure-caption">Return attribution by instrument (top 10 + Other)</figcaption>
+  </figure>
+  {% endif %}
+  {% if figures.by_sector %}
+  <figure class="br-figure">
+    <img src="data:image/png;base64,{{ figures.by_sector }}" alt="Attribution by Sector" style="width:100%;" />
+    <figcaption class="br-figure-caption">Return attribution by sector</figcaption>
+  </figure>
+  {% endif %}
+  {% if not figures %}
+  <p class="br-muted">Attribution data not available.</p>
+  {% endif %}
+</div>

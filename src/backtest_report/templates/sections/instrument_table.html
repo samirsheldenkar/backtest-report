@@ -1,0 +1,8 @@
+{# instrument_table.html — Per-instrument statistics table #}
+<div class="br-instrument-table-wrapper">
+  {% if table_html %}
+  {{ table_html | safe }}
+  {% else %}
+  <p class="br-muted">Instrument statistics not available.</p>
+  {% endif %}
+</div>

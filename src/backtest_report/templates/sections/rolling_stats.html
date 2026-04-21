@@ -1,0 +1,21 @@
+{# rolling_stats.html — Rolling Sharpe, rolling return, beta charts #}
+<div class="br-rolling-stats">
+  {% if figures.rolling_sharpe %}
+  <figure class="br-figure">
+    <img src="data:image/png;base64,{{ figures.rolling_sharpe }}" alt="Rolling 1-Year Sharpe Ratio" style="width:100%;" />
+    <figcaption class="br-figure-caption">Rolling 1-Year Sharpe Ratio</figcaption>
+  </figure>
+  {% endif %}
+  {% if figures.rolling_3y_return %}
+  <figure class="br-figure">
+    <img src="data:image/png;base64,{{ figures.rolling_3y_return }}" alt="Rolling 3-Year Annualised Return" style="width:100%;" />
+    <figcaption class="br-figure-caption">Rolling 3-Year Annualised Return</figcaption>
+  </figure>
+  {% endif %}
+  {% if figures.rolling_beta %}
+  <figure class="br-figure">
+    <img src="data:image/png;base64,{{ figures.rolling_beta }}" alt="Rolling 1-Year Beta" style="width:100%;" />
+    <figcaption class="br-figure-caption">Rolling 1-Year Beta vs Benchmark</figcaption>
+  </figure>
+  {% endif %}
+</div>

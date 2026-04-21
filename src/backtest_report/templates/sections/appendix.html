@@ -1,0 +1,40 @@
+{# appendix.html — YAML config dump, checksums table, environment info #}
+<div class="br-appendix">
+  <h3>Configuration</h3>
+  <pre>{{ config_yaml | e }}</pre>
+
+  <h3>Data Checksums</h3>
+  {% if checksums %}
+  <table class="br-checksums-table">
+    <thead>
+      <tr><th>File</th><th>Checksum</th></tr>
+    </thead>
+    <tbody>
+      {% for filename, checksum in checksums.items() %}
+      <tr>
+        <td>{{ filename | e }}</td>
+        <td><code>{{ checksum | e }}</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="br-muted">No checksums available.</p>
+  {% endif %}
+
+  <h3>Environment</h3>
+  {% if environment %}
+  <table class="br-checksums-table">
+    <tbody>
+      {% for key, value in environment.items() %}
+      <tr>
+        <td>{{ key | e }}</td>
+        <td><code>{{ value | e }}</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="br-muted">Environment info not available.</p>
+  {% endif %}
+</div>
