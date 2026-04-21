@@ -1,0 +1,39 @@
+{
+  "config": {
+    "experiment_id": "test-fixture_20240101_120000",
+    "strategy_name": "Test Fixture Strategy",
+    "engine": "backtest-report",
+    "engine_version": "0.1.0",
+    "python_version": "",
+    "git_commit": "",
+    "instrument_universe": [
+      "EDOLLAR",
+      "US10",
+      "US5",
+      "GOLD",
+      "CRUDE_W",
+      "SP500",
+      "EUROSTX",
+      "GAS_US",
+      "CORN",
+      "JPY"
+    ],
+    "start_date": "2020-01-02",
+    "end_date": "2024-12-31",
+    "capital": 1000000.0,
+    "currency": "USD",
+    "risk_target_annual_pct": 20.0,
+    "data_sources": [
+      "synthetic"
+    ],
+    "config_overrides": {}
+  },
+  "generated_at": "2024-01-01 12:00:00",
+  "report_version": "0.1.0",
+  "data_checksums": {
+    "portfolio_returns": "sha256:481b963f49cf24878797768cb0e5360a2601d19c9fd28c271e927eb249aa7183",
+    "instrument_pnl": "sha256:e35df745253f9f79b7365aec777c0093ada9723717b427a8c1c254cc5f759f06",
+    "positions": "sha256:c18925b4bed6365c5d1c61c17ce4cb1cbd7e938476caf332a29b9704301aa988"
+  },
+  "notes": "Synthetic fixture data for testing"
+}
