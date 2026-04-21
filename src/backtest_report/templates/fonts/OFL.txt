@@ -1,0 +1,13 @@
+# Font Licenses
+
+## Inter
+Inter is licensed under the SIL Open Font License v1.1.
+See: https://scripts.sil.org/OFL
+
+## JetBrains Mono
+JetBrains Mono is licensed under the SIL Open Font License v1.1.
+See: https://www.jetbrains.com/legal/opensource
+Repository: https://github.com/JetBrains/JetBrainsMono
+
+Both fonts are used in woff2 format, bundled with backtest-report
+for PDF rendering via WeasyPrint.
