@@ -102,13 +102,15 @@ class TestSectionRenderingPipeline:
         report = BacktestReport(
             data=sample_backtest_data,
             meta=sample_meta,
-            # All currently implemented sections
+            # All currently implemented sections (S17: instrument sections registered)
             section_filter=[
                 "header",
                 "portfolio_pnl",
                 "monthly_returns",
                 "portfolio_stats",
                 "rolling_stats",
+                "instrument_pnl",
+                "instrument_table",
                 "appendix",
             ],
         )

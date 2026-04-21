@@ -29,6 +29,12 @@ def _register_default_sections() -> None:
     SECTION_REGISTRY["header"] = header.render_header
     SECTION_REGISTRY["appendix"] = appendix.render_appendix
 
+    # Instrument sections
+    from backtest_report import instrument
+
+    SECTION_REGISTRY["instrument_pnl"] = instrument.render_instrument_pnl
+    SECTION_REGISTRY["instrument_table"] = instrument.render_instrument_table
+
 
 _register_default_sections()
 
