@@ -4,9 +4,9 @@ This module provides functions to extract backtest data and configuration
 from QuantConnect cloud backtests via the QC API v2.
 
 Usage:
-    from backtest_report.adapters.quantconnect import fetch_backtest
+    from backtest_report.adapters.quantconnect import fetch_backtest_data
 
-    data, config = fetch_backtest(
+    data, config = fetch_backtest_data(
         project_id=30522360,
         backtest_id="283c46d6a20c169a7a75e3a9a371a68d",
     )
@@ -33,6 +33,9 @@ logger = logging.getLogger("backtest_report")
 QC_BASE_URL = "https://www.quantconnect.com/api/v2"
 
 
+# ── Exceptions ───────────────────────────────────────────────────────
+
+
 class QuantConnectAuthError(Exception):
     """Raised when QC API authentication fails."""
     pass
@@ -46,6 +49,9 @@ class QuantConnectAPIError(Exception):
 class QuantConnectNotFoundError(Exception):
     """Raised when a backtest or project is not found."""
     pass
+
+
+# ── API layer ────────────────────────────────────────────────────────
 
 
 def _get_headers(user_id: str, api_token: str) -> dict[str, str]:
@@ -85,14 +91,7 @@ def _api_post(
 
 
 def authenticate(user_id: str, api_token: str) -> bool:
-    """Verify QC API credentials.
-
-    Returns:
-        True if authentication succeeds
-
-    Raises:
-        QuantConnectAuthError: if authentication fails
-    """
+    """Verify QC API credentials."""
     resp = _api_post("authenticate", user_id, api_token)
     if not resp.get("success"):
         raise QuantConnectAuthError(f"QC API authentication failed: {resp}")
@@ -104,11 +103,7 @@ def list_backtests(
     api_token: str,
     project_id: int,
 ) -> list[dict[str, Any]]:
-    """List backtests for a project.
-
-    Returns:
-        list of backtest summary dicts (id, name, status, etc.)
-    """
+    """List backtests for a project."""
     resp = _api_post("backtests/read", user_id, api_token, {
         "projectId": project_id,
     })
@@ -123,12 +118,7 @@ def get_backtest_info(
     project_id: int,
     backtest_id: str,
 ) -> dict[str, Any]:
-    """Fetch backtest metadata and statistics.
-
-    Returns:
-        dict with keys: name, backtestId, backtestStart, backtestEnd,
-        statistics, tradeableDates, etc.
-    """
+    """Fetch backtest metadata, statistics, and totalPerformance."""
     resp = _api_post("backtests/read", user_id, api_token, {
         "projectId": project_id,
         "backtestId": backtest_id,
@@ -159,13 +149,6 @@ def get_chart(
 
     Common chart names: "Strategy Equity", "Benchmark", "Drawdown",
     "Portfolio Margin", "Assets Sales Volume", "Exposure", "Capacity".
-
-    Args:
-        start/end: Unix timestamps in SECONDS (not ms)
-        count: max data points to return
-
-    Returns:
-        chart dict with 'name', 'chartType', 'series' keys
     """
     payload: dict[str, Any] = {
         "projectId": project_id,
@@ -186,20 +169,59 @@ def get_chart(
     return resp["chart"]
 
 
+def _safe_get_chart(
+    user_id: str,
+    api_token: str,
+    project_id: int,
+    backtest_id: str,
+    chart_name: str,
+    count: int = 50000,
+) -> dict[str, Any] | None:
+    """Fetch a chart, returning None on failure instead of raising."""
+    try:
+        return get_chart(user_id, api_token, project_id, backtest_id, chart_name, count=count)
+    except Exception as e:
+        logger.warning("Could not fetch chart '%s': %s", chart_name, e)
+        return None
+
+
 # ── Parsing helpers ──────────────────────────────────────────────────
+
+
+def _parse_ts_value_pairs(values: list) -> dict[pd.Timestamp, float]:
+    """Parse [timestamp_seconds, value] pairs into {Timestamp: float}."""
+    result: dict[pd.Timestamp, float] = {}
+    for v in values:
+        if isinstance(v, (list, tuple)) and len(v) >= 2:
+            ts = pd.Timestamp(v[0], unit="s", tz="UTC")
+            result[ts.normalize()] = v[1]
+        elif isinstance(v, dict):
+            ts = pd.Timestamp(v.get("x", v.get("time", 0)), unit="s", tz="UTC")
+            result[ts.normalize()] = v.get("y", v.get("value", 0))
+    return result
+
+
+def _parse_ts_ohlc_pairs(values: list) -> dict[pd.Timestamp, float]:
+    """Parse [timestamp_seconds, o, h, l, close] pairs, extracting close."""
+    result: dict[pd.Timestamp, float] = {}
+    for v in values:
+        if isinstance(v, (list, tuple)) and len(v) >= 5:
+            ts = pd.Timestamp(v[0], unit="s", tz="UTC")
+            result[ts.normalize()] = v[4]  # close
+        elif isinstance(v, (list, tuple)) and len(v) >= 2:
+            ts = pd.Timestamp(v[0], unit="s", tz="UTC")
+            result[ts.normalize()] = v[1]
+        elif isinstance(v, dict):
+            ts = pd.Timestamp(v.get("x", v.get("time", 0)), unit="s", tz="UTC")
+            result[ts.normalize()] = v.get("y", v.get("close", v.get("value", 0)))
+    return result
 
 
 def parse_equity_chart(chart: dict[str, Any]) -> pd.Series:
     """Parse Strategy Equity chart into a daily equity Series.
 
     QC returns equity as [timestamp_seconds, open, high, low, close].
-    We extract the daily close to build the equity curve.
-
-    Returns:
-        pd.Series with DatetimeIndex (UTC), values = daily close equity
-
-    Raises:
-        ValueError: if no equity values found
+    We extract the daily close.
     """
     series = chart.get("series", {})
     equity_data = series.get("Equity", series.get("equity", {}))
@@ -208,17 +230,7 @@ def parse_equity_chart(chart: dict[str, Any]) -> pd.Series:
     if not values:
         raise ValueError("No equity values found in Strategy Equity chart")
 
-    daily_close: dict[pd.Timestamp, float] = {}
-    for v in values:
-        if isinstance(v, (list, tuple)) and len(v) >= 5:
-            # [timestamp_seconds, open, high, low, close]
-            ts = pd.Timestamp(v[0], unit="s", tz="UTC")
-            close = v[4]
-            daily_close[ts.normalize()] = close
-        elif isinstance(v, dict):
-            ts = pd.Timestamp(v.get("x", v.get("time", 0)), unit="s", tz="UTC")
-            close = v.get("y", v.get("close", v.get("value", 0)))
-            daily_close[ts.normalize()] = close
+    daily_close = _parse_ts_ohlc_pairs(values)
 
     if not daily_close:
         raise ValueError("No parseable equity values found")
@@ -233,11 +245,7 @@ def parse_returns_series(chart: dict[str, Any]) -> pd.Series | None:
     """Parse daily return series from chart if available.
 
     QC provides a "Return" series with [timestamp_seconds, return_pct].
-    Returns may be in percentage (e.g. 2.5) or decimal (e.g. 0.025) form.
-    We detect and normalise to decimal.
-
-    Returns:
-        pd.Series with DatetimeIndex, or None if not available
+    Values are in percentage form (e.g. 2.5 = 2.5%), normalised to decimal.
     """
     series = chart.get("series", {})
     for key in ("Return", "Daily Return", "return"):
@@ -251,7 +259,6 @@ def parse_returns_series(chart: dict[str, Any]) -> pd.Series | None:
                 if isinstance(v, (list, tuple)) and len(v) >= 2:
                     ts = pd.Timestamp(v[0], unit="s", tz="UTC")
                     ret = v[1]
-                    # QC returns percentages for this series (e.g. 2.5 = 2.5%)
                     if abs(ret) > 1:
                         ret = ret / 100
                     returns[ts.normalize()] = ret
@@ -278,15 +285,10 @@ def parse_benchmark_chart(chart: dict[str, Any]) -> pd.Series | None:
         if not values:
             continue
 
-        daily_vals: dict[pd.Timestamp, float] = {}
-        for v in values:
-            if isinstance(v, (list, tuple)) and len(v) >= 2:
-                ts = pd.Timestamp(v[0], unit="s", tz="UTC")
-                val = v[1] if len(v) == 2 else v[4]  # close for OHLC
-                daily_vals[ts.normalize()] = val
-            elif isinstance(v, dict):
-                ts = pd.Timestamp(v.get("x", 0), unit="s", tz="UTC")
-                daily_vals[ts.normalize()] = v.get("y", v.get("value", 0))
+        daily_vals = _parse_ts_ohlc_pairs(values)
+        if not daily_vals:
+            # Try simple value pairs
+            daily_vals = _parse_ts_value_pairs(values)
 
         if daily_vals:
             benchmark = pd.Series(daily_vals).sort_index()
@@ -295,6 +297,287 @@ def parse_benchmark_chart(chart: dict[str, Any]) -> pd.Series | None:
             returns.name = "benchmark_returns"
             return returns
     return None
+
+
+def parse_per_instrument_chart(
+    chart: dict[str, Any],
+) -> dict[str, pd.Series]:
+    """Parse a chart with per-instrument series (e.g. Portfolio Margin, Assets Sales Volume).
+
+    QC charts like "Portfolio Margin" have series keyed by symbol:
+      {"series": {"SPY": {"values": [[ts, val], ...]}, "QQQ": {...}}}
+
+    Returns:
+        dict mapping symbol → pd.Series with DatetimeIndex
+    """
+    result: dict[str, pd.Series] = {}
+    series = chart.get("series", {})
+    for symbol, sdata in series.items():
+        values = sdata.get("values", [])
+        if not values:
+            continue
+        daily_vals = _parse_ts_value_pairs(values)
+        if daily_vals:
+            s = pd.Series(daily_vals).sort_index()
+            s.index = pd.DatetimeIndex(s.index, name="date")
+            s.name = symbol
+            result[symbol] = s
+    return result
+
+
+def parse_exposure_chart(chart: dict[str, Any]) -> pd.DataFrame:
+    """Parse Exposure chart into a DataFrame of long/short ratios.
+
+    QC returns series like "Equity - Long Ratio", "Equity - Short Ratio"
+    with [timestamp_seconds, ratio] pairs.
+
+    Returns:
+        DataFrame with DatetimeIndex and columns for each exposure type
+    """
+    series = chart.get("series", {})
+    frames: dict[str, pd.Series] = {}
+    for skey, sdata in series.items():
+        values = sdata.get("values", [])
+        if not values:
+            continue
+        daily_vals = _parse_ts_value_pairs(values)
+        if daily_vals:
+            s = pd.Series(daily_vals).sort_index()
+            s.index = pd.DatetimeIndex(s.index, name="date")
+            frames[skey] = s
+
+    if not frames:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(frames)
+    df.index = pd.DatetimeIndex(df.index, name="date")
+    return df
+
+
+def parse_closed_trades(
+    closed_trades: list[dict[str, Any]],
+) -> pd.DataFrame:
+    """Parse closedTrades from totalPerformance into a DataFrame.
+
+    Each trade has: symbol, entryTime, exitTime, entryPrice, exitPrice,
+    direction, quantity, totalFees, profitLoss, mae, mfe, duration.
+
+    Returns:
+        DataFrame with one row per closed trade
+    """
+    if not closed_trades:
+        return pd.DataFrame()
+
+    rows = []
+    for t in closed_trades:
+        sym = t.get("symbol", {})
+        rows.append({
+            "symbol": sym.get("value", sym.get("Symbol", "UNKNOWN")),
+            "entry_time": pd.Timestamp(t.get("entryTime", 0)),
+            "exit_time": pd.Timestamp(t.get("exitTime", 0)),
+            "direction": t.get("direction", ""),
+            "quantity": float(t.get("quantity", 0)),
+            "entry_price": float(t.get("entryPrice", 0)),
+            "exit_price": float(t.get("exitPrice", 0)),
+            "profit_loss": float(t.get("profitLoss", 0)),
+            "total_fees": float(t.get("totalFees", 0)),
+            "mae": float(t.get("mae", 0)),
+            "mfe": float(t.get("mfe", 0)),
+        })
+
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df["exit_date"] = pd.to_datetime(df["exit_time"]).dt.normalize()
+    return df
+
+
+# ── Per-instrument PnL and position builders ─────────────────────────
+
+
+def build_instrument_pnl_from_margin(
+    portfolio_returns: pd.Series,
+    margin_chart: dict[str, Any],
+) -> tuple[pd.DataFrame, list[str]]:
+    """Build per-instrument PnL from Portfolio Margin chart data.
+
+    Uses per-symbol daily margin as a weight proxy to decompose portfolio
+    returns into instrument-level PnL.
+
+    Strategy:
+        - Get daily margin per symbol from the chart
+        - Compute each symbol's weight as margin / total_margin
+        - instrument_pnl[t, sym] = portfolio_return[t] * weight[t, sym]
+
+    Args:
+        portfolio_returns: daily portfolio return series
+        margin_chart: parsed Portfolio Margin chart dict from QC API
+
+    Returns:
+        tuple of (instrument_pnl DataFrame, list of instruments)
+    """
+    per_instr = parse_per_instrument_chart(margin_chart)
+    if not per_instr:
+        return pd.DataFrame(), []
+
+    instruments = sorted(per_instr.keys())
+
+    # Align all series to the same dates
+    margin_df = pd.DataFrame(per_instr)
+    margin_df = margin_df.reindex(portfolio_returns.index)
+
+    # Forward-fill margin values (QC only reports on days with changes)
+    margin_df = margin_df.ffill().fillna(0)
+
+    # Compute weights: each symbol's margin / total margin
+    total_margin = margin_df.sum(axis=1).replace(0, 1)  # avoid div by zero
+    weights = margin_df.div(total_margin, axis=0)
+
+    # Decompose portfolio returns by weight
+    pnl_data = {}
+    for instr in instruments:
+        pnl_data[instr] = portfolio_returns * weights[instr]
+
+    instrument_pnl = pd.DataFrame(pnl_data, index=portfolio_returns.index)
+    instrument_pnl.index = pd.DatetimeIndex(instrument_pnl.index, name="date")
+
+    logger.info(
+        "Built per-instrument PnL from margin chart: %d instruments, %d days",
+        len(instruments),
+        len(instrument_pnl),
+    )
+    return instrument_pnl, instruments
+
+
+def build_positions_from_margin(
+    portfolio_returns: pd.Series,
+    margin_chart: dict[str, Any],
+) -> pd.DataFrame:
+    """Build per-instrument position weights from Portfolio Margin chart.
+
+    Returns a DataFrame of weight allocations (0-1) per instrument per day,
+    where each row sums to ~1.0 when fully invested.
+
+    Args:
+        portfolio_returns: daily portfolio return series (for date alignment)
+        margin_chart: parsed Portfolio Margin chart dict from QC API
+
+    Returns:
+        DataFrame with DatetimeIndex, columns = instruments, values = weights
+    """
+    per_instr = parse_per_instrument_chart(margin_chart)
+    if not per_instr:
+        return pd.DataFrame()
+
+    instruments = sorted(per_instr.keys())
+
+    margin_df = pd.DataFrame(per_instr)
+    margin_df = margin_df.reindex(portfolio_returns.index)
+    margin_df = margin_df.ffill().fillna(0)
+
+    total_margin = margin_df.sum(axis=1).replace(0, 1)
+    weights = margin_df.div(total_margin, axis=0)
+
+    positions = pd.DataFrame(
+        {instr: weights[instr].values for instr in instruments},
+        index=portfolio_returns.index,
+    )
+    positions.index = pd.DatetimeIndex(positions.index, name="date")
+
+    logger.info(
+        "Built per-instrument positions from margin chart: %d instruments",
+        len(instruments),
+    )
+    return positions
+
+
+def build_instrument_pnl_from_trades(
+    closed_trades_df: pd.DataFrame,
+    portfolio_returns: pd.Series,
+    instruments: list[str],
+) -> pd.DataFrame:
+    """Build daily per-instrument PnL from closed trades.
+
+    Aggregates trade PnL by exit date and symbol, then reindexes to match
+    the portfolio returns dates (filling non-trade days with 0).
+
+    Args:
+        closed_trades_df: DataFrame from parse_closed_trades()
+        portfolio_returns: daily portfolio return series
+        instruments: list of instrument symbols
+
+    Returns:
+        DataFrame with DatetimeIndex, columns = instruments, values = daily PnL
+    """
+    if closed_trades_df.empty:
+        return pd.DataFrame(0, index=portfolio_returns.index, columns=instruments)
+
+    # Aggregate by (exit_date, symbol)
+    pnl_by_date = (
+        closed_trades_df
+        .groupby(["exit_date", "symbol"])["profit_loss"]
+        .sum()
+        .unstack(fill_value=0)
+    )
+    pnl_by_date.index = pd.DatetimeIndex(pnl_by_date.index, name="date")
+
+    # Ensure all instruments present
+    for instr in instruments:
+        if instr not in pnl_by_date.columns:
+            pnl_by_date[instr] = 0.0
+
+    # Reindex to match portfolio returns dates
+    pnl_by_date = pnl_by_date.reindex(portfolio_returns.index, fill_value=0)
+    pnl_by_date = pnl_by_date[instruments]  # consistent column order
+
+    return pnl_by_date
+
+
+def build_positions_from_trades(
+    closed_trades_df: pd.DataFrame,
+    portfolio_returns: pd.Series,
+    instruments: list[str],
+) -> pd.DataFrame:
+    """Build approximate position weights from closed trades.
+
+    Uses a simple heuristic: if a symbol has an open trade on a given day,
+    assign equal weight across all symbols with open trades.
+
+    For more accurate positions, use margin chart data instead.
+
+    Args:
+        closed_trades_df: DataFrame from parse_closed_trades()
+        portfolio_returns: daily portfolio return series
+        instruments: list of instrument symbols
+
+    Returns:
+        DataFrame with DatetimeIndex, columns = instruments, values = weights
+    """
+    dates = portfolio_returns.index
+    positions = pd.DataFrame(0.0, index=dates, columns=instruments)
+    positions.index = pd.DatetimeIndex(positions.index, name="date")
+
+    if closed_trades_df.empty:
+        # No trades — assume equal weight always invested
+        n = len(instruments) or 1
+        for instr in instruments:
+            positions[instr] = 1.0 / n
+        return positions
+
+    # Mark days where each symbol has an open position
+    for _, trade in closed_trades_df.iterrows():
+        entry = pd.Timestamp(trade["entry_time"]).normalize()
+        exit_d = pd.Timestamp(trade["exit_time"]).normalize()
+        sym = trade["symbol"]
+        if sym not in instruments:
+            continue
+        mask = (dates >= entry) & (dates <= exit_d)
+        positions.loc[mask, sym] = 1.0
+
+    # Normalise rows to sum to 1
+    row_sums = positions.sum(axis=1).replace(0, 1)
+    positions = positions.div(row_sums, axis=0)
+
+    return positions
 
 
 # ── Main entry points ────────────────────────────────────────────────
@@ -307,19 +590,8 @@ def fetch_backtest(
     api_token: str | None = None,
     strategy_name: str | None = None,
     risk_target_annual_pct: float = 20.0,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, Any], dict[str, Any]]:
+) -> tuple[pd.Series, pd.DataFrame, pd.DataFrame, dict[str, Any], dict[str, Any]]:
     """Fetch a QC cloud backtest and extract all data.
-
-    This is the low-level fetch that returns raw DataFrames and dicts,
-    suitable for further processing or direct use.
-
-    Args:
-        project_id: QC project ID
-        backtest_id: QC backtest ID
-        user_id: QC user ID (or set env QC_USER_ID)
-        api_token: QC API token (or set env QC_API_TOKEN)
-        strategy_name: override strategy name (default: QC project name)
-        risk_target_annual_pct: annual risk target for config
 
     Returns:
         tuple of:
@@ -344,17 +616,20 @@ def fetch_backtest(
     authenticate(uid, token)
     logger.info("QC API authenticated for user %s", uid)
 
-    # 2. Fetch backtest metadata
+    # 2. Fetch backtest metadata with totalPerformance
     bt_info = get_backtest_info(uid, token, project_id, backtest_id)
     stats = bt_info.get("statistics", {})
+    tp = bt_info.get("totalPerformance", {})
+    closed_trades_raw = tp.get("closedTrades", [])
     bt_name = bt_info.get("name", "unknown")
     name = strategy_name or bt_name
 
     logger.info(
-        "Backtest: %s (%s to %s)",
+        "Backtest: %s (%s to %s), %d closed trades",
         bt_name,
         bt_info.get("backtestStart"),
         bt_info.get("backtestEnd"),
+        len(closed_trades_raw),
     )
 
     # 3. Fetch equity chart
@@ -367,52 +642,122 @@ def fetch_backtest(
     if returns is not None and len(returns) > 1:
         portfolio_returns = returns
     else:
-        # Compute from equity
         portfolio_returns = equity.pct_change().dropna()
         portfolio_returns.name = "returns"
         portfolio_returns.index.name = "date"
 
-    # 4. Determine instruments
-    # For single-instrument strategies, we infer from the algorithm
-    # Multi-instrument would need per-instrument data from QC (future work)
-    instruments = _infer_instruments(bt_info, stats)
+    # 4. Fetch per-instrument data from charts
+    margin_chart = _safe_get_chart(uid, token, project_id, backtest_id, "Portfolio Margin")
+    exposure_chart = _safe_get_chart(uid, token, project_id, backtest_id, "Exposure")
+
+    # 5. Parse closed trades
+    closed_trades_df = parse_closed_trades(closed_trades_raw)
+    if not closed_trades_df.empty:
+        logger.info(
+            "Closed trades: %d trades across %d symbols",
+            len(closed_trades_df),
+            closed_trades_df["symbol"].nunique(),
+        )
+
+    # 6. Determine instruments (prefer margin chart → closed trades → stats)
+    instruments: list[str] = []
+
+    if margin_chart:
+        per_instr = parse_per_instrument_chart(margin_chart)
+        if per_instr:
+            instruments = sorted(per_instr.keys())
+
+    if not instruments and not closed_trades_df.empty:
+        instruments = sorted(closed_trades_df["symbol"].unique().tolist())
+
+    if not instruments:
+        instruments = _infer_instruments(bt_info, stats)
+
     logger.info("Instruments: %s", instruments)
 
-    # 5. Build instrument PnL
-    # Without per-instrument data from QC, we proxy with equal-weight allocation
-    n_instr = len(instruments)
-    pnl_data = {instr: portfolio_returns.values / n_instr for instr in instruments}
-    instrument_pnl = pd.DataFrame(pnl_data, index=portfolio_returns.index)
-    instrument_pnl.index = pd.DatetimeIndex(instrument_pnl.index, name="date")
+    # 7. Build per-instrument PnL
+    instrument_pnl = pd.DataFrame()
 
-    # 6. Build positions (equal weight, always invested)
-    pos_data = {instr: 1.0 / n_instr for instr in instruments}
-    positions = pd.DataFrame(
-        pos_data,
-        index=pd.Index([0]),  # single row — constant allocation
-    )
-    # Expand to match returns dates
-    positions = pd.DataFrame(
-        {instr: [pos_data[instr]] * len(portfolio_returns) for instr in instruments},
-        index=portfolio_returns.index,
-    )
-    positions.index = pd.DatetimeIndex(positions.index, name="date")
+    if margin_chart and len(instruments) > 1:
+        # Multi-instrument: decompose using margin weights
+        instrument_pnl, margin_instruments = build_instrument_pnl_from_margin(
+            portfolio_returns, margin_chart
+        )
+        if margin_instruments:
+            instruments = margin_instruments
+    elif not closed_trades_df.empty:
+        # Use trade-level PnL aggregated by day
+        instrument_pnl = build_instrument_pnl_from_trades(
+            closed_trades_df, portfolio_returns, instruments
+        )
 
-    # 7. Instrument metadata
+    if instrument_pnl.empty:
+        # Fallback: equal-weight allocation
+        n = len(instruments)
+        pnl_data = {instr: portfolio_returns.values / n for instr in instruments}
+        instrument_pnl = pd.DataFrame(pnl_data, index=portfolio_returns.index)
+        instrument_pnl.index = pd.DatetimeIndex(instrument_pnl.index, name="date")
+
+    # 8. Build positions
+    positions = pd.DataFrame()
+
+    if margin_chart and len(instruments) > 1:
+        positions = build_positions_from_margin(portfolio_returns, margin_chart)
+    elif not closed_trades_df.empty:
+        positions = build_positions_from_trades(
+            closed_trades_df, portfolio_returns, instruments
+        )
+
+    if positions.empty:
+        n = len(instruments) or 1
+        pos_data = {instr: [1.0 / n] * len(portfolio_returns) for instr in instruments}
+        positions = pd.DataFrame(pos_data, index=portfolio_returns.index)
+        positions.index = pd.DatetimeIndex(positions.index, name="date")
+
+    # 9. Instrument metadata
     instrument_meta = {
         instr: {"code": instr, "asset_class": _guess_asset_class(instr)}
         for instr in instruments
     }
 
-    # 8. Config
+    # Enrich with closed trade statistics per instrument
+    if not closed_trades_df.empty:
+        for instr in instruments:
+            instr_trades = closed_trades_df[closed_trades_df["symbol"] == instr]
+            meta = instrument_meta[instr]
+            meta["total_trades"] = len(instr_trades)
+            meta["total_pnl"] = float(instr_trades["profit_loss"].sum())
+            meta["win_rate"] = float(
+                (instr_trades["profit_loss"] > 0).mean()
+            ) if len(instr_trades) > 0 else 0.0
+            meta["avg_trade_pnl"] = float(
+                instr_trades["profit_loss"].mean()
+            ) if len(instr_trades) > 0 else 0.0
+            meta["max_mae"] = float(instr_trades["mae"].min()) if len(instr_trades) > 0 else 0.0
+            meta["max_mfe"] = float(instr_trades["mfe"].max()) if len(instr_trades) > 0 else 0.0
+
+    # 10. Config
     start_equity = _parse_float(
         stats.get("Start Equity", stats.get("Starting Equity", "100000"))
     )
     start_date = portfolio_returns.index[0].date()
     end_date = portfolio_returns.index[-1].date()
 
+    # Build per-instrument trade stats for config_overrides
+    instr_trade_stats = {}
+    if not closed_trades_df.empty:
+        for instr in instruments:
+            instr_trades = closed_trades_df[closed_trades_df["symbol"] == instr]
+            if len(instr_trades) > 0:
+                instr_trade_stats[instr] = {
+                    "trades": len(instr_trades),
+                    "total_pnl": round(float(instr_trades["profit_loss"].sum()), 2),
+                    "win_rate": round(float((instr_trades["profit_loss"] > 0).mean()), 4),
+                    "avg_pnl": round(float(instr_trades["profit_loss"].mean()), 2),
+                }
+
     config_dict = {
-        "experiment_id": f"qc-{name.lower().replace(' ', '-')}_{project_id}",
+        "experiment_id": f"qc-{name.lower().replace(' ', '-')}",
         "strategy_name": name,
         "engine": "quantconnect-lean",
         "instrument_universe": instruments,
@@ -424,6 +769,7 @@ def fetch_backtest(
         "config_overrides": {
             "project_id": project_id,
             "backtest_id": backtest_id,
+            "closed_trades_count": len(closed_trades_raw),
             "qc_statistics": {
                 k: stats[k]
                 for k in [
@@ -434,6 +780,7 @@ def fetch_backtest(
                 ]
                 if k in stats
             },
+            "instrument_trade_stats": instr_trade_stats,
         },
     }
 
@@ -453,20 +800,8 @@ def fetch_backtest_data(
     This is the high-level entry point that returns validated model objects,
     ready for write_experiment_dir() or BacktestReport.generate().
 
-    Args:
-        project_id: QC project ID
-        backtest_id: QC backtest ID
-        user_id: QC user ID (or set env QC_USER_ID)
-        api_token: QC API token (or set env QC_API_TOKEN)
-        strategy_name: override strategy name
-        risk_target_annual_pct: annual risk target for config
-
     Returns:
         tuple of (BacktestData, BacktestConfig)
-
-    Example:
-        data, config = fetch_backtest_data(30522360, "abc123...")
-        write_experiment_dir(Path("/store/backtests/my_exp"), data, config, {})
     """
     from backtest_report.models import BacktestConfig, BacktestData, InstrumentMeta
 
@@ -485,7 +820,6 @@ def fetch_backtest_data(
         risk_target_annual_pct=risk_target_annual_pct,
     )
 
-    # Build validated model objects
     config = BacktestConfig.model_validate(config_dict)
 
     instrument_meta = {
@@ -531,14 +865,6 @@ def fetch_and_write(
 
     Combines fetch_backtest_data() + write_experiment_dir() + checksums.
 
-    Args:
-        project_id: QC project ID
-        backtest_id: QC backtest ID
-        output_dir: base directory (experiment dir created inside)
-        user_id: QC user ID
-        api_token: QC API token
-        strategy_name: strategy name override
-
     Returns:
         Path to the created experiment directory
     """
@@ -552,16 +878,13 @@ def fetch_and_write(
         strategy_name=strategy_name,
     )
 
-    # Create experiment dir
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     slug = config.strategy_name.lower().replace(" ", "-")
     experiment_id = f"{slug}_{timestamp}"
     exp_dir = Path(output_dir) / experiment_id
 
-    # Write first, then compute checksums
     write_experiment_dir(exp_dir, data, config, data_checksums={})
 
-    # Compute checksums and re-write
     checksums = {}
     for fname in ["portfolio_returns.parquet", "instrument_pnl.parquet", "positions.parquet"]:
         fpath = exp_dir / fname
@@ -577,48 +900,28 @@ def fetch_and_write(
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
-_ASSET_CLASS_MAP: dict[str, str] = {
-    "equity": "equity",
-    "future": "future",
-    "forex": "fx",
-    "crypto": "crypto",
-    "option": "option",
-    "index": "index",
-    "cfd": "cfd",
-}
-
-
 def _guess_asset_class(symbol: str) -> str:
     """Guess asset class from a QC symbol or security type hint."""
     s = symbol.upper()
     if s in ("SPY", "QQQ", "IWM", "AAPL", "MSFT", "GOOG"):
         return "equity"
-    # Common futures patterns
     for prefix in ("ES", "NQ", "CL", "GC", "ZB", "ZN", "ZF", "ZW", "ZC", "ZS"):
         if s.startswith(prefix):
             return "future"
-    # FX pairs
     for pair in ("EURUSD", "GBPUSD", "USDJPY", "AUDUSD"):
         if s.startswith(pair[:3]):
             return "fx"
-    return "equity"  # default
+    return "equity"
 
 
 def _infer_instruments(bt_info: dict, stats: dict) -> list[str]:
-    """Infer traded instruments from backtest metadata.
-
-    QC API doesn't always provide a clean instrument list in the backtest
-    summary. We try several approaches.
-    """
-    # Try from statistics
+    """Infer traded instruments from backtest metadata."""
     lowest = stats.get("Lowest Capacity Asset", "")
     if isinstance(lowest, str) and lowest.strip():
-        # e.g. "SPY R735QTJ8XC9X" → extract the symbol
         parts = lowest.strip().split()
         if parts:
             return [parts[0]]
 
-    # Try from orders (if available)
     orders = bt_info.get("orders", [])
     if orders:
         symbols = set()
@@ -629,7 +932,6 @@ def _infer_instruments(bt_info: dict, stats: dict) -> list[str]:
         if symbols:
             return sorted(symbols)
 
-    # Default: return generic
     return ["UNKNOWN"]
 
 
