@@ -29,29 +29,30 @@
   </section>
   {% endif %}
 
-  {# ── Portfolio PnL ────────────────────────────────────────────────────────── #}
-  {% if sections.portfolio_pnl %}
-  <section id="section-portfolio-pnl" class="br-section">
-    <h2>Cumulative Returns</h2>
-    {{ sections.portfolio_pnl.html | safe }}
-  </section>
-  {% endif %}
+  <div class="br-summary-dashboard">
+    {# ── Portfolio Stats ─────────────────────────────────────────────────────── #}
+    {% if sections.portfolio_stats %}
+    <section id="section-portfolio-stats" class="br-section br-no-page-break">
+      <h2>Key Metrics</h2>
+      {{ sections.portfolio_stats.html | safe }}
+    </section>
+    {% endif %}
 
-  {# ── Monthly Returns ─────────────────────────────────────────────────────── #}
-  {% if sections.monthly_returns %}
-  <section id="section-monthly-returns" class="br-section">
-    <h2>Monthly Returns</h2>
-    {{ sections.monthly_returns.html | safe }}
-  </section>
-  {% endif %}
+    {# ── Portfolio PnL ────────────────────────────────────────────────────────── #}
+    {% if sections.portfolio_pnl %}
+    <section id="section-portfolio-pnl" class="br-section br-no-page-break">
+      {{ sections.portfolio_pnl.html | safe }}
+    </section>
+    {% endif %}
 
-  {# ── Portfolio Stats ─────────────────────────────────────────────────────── #}
-  {% if sections.portfolio_stats %}
-  <section id="section-portfolio-stats" class="br-section">
-    <h2>Key Metrics</h2>
-    {{ sections.portfolio_stats.html | safe }}
-  </section>
-  {% endif %}
+    {# ── Monthly Returns ─────────────────────────────────────────────────────── #}
+    {% if sections.monthly_returns %}
+    <section id="section-monthly-returns" class="br-section br-no-page-break">
+      <h2>Monthly Returns</h2>
+      {{ sections.monthly_returns.html | safe }}
+    </section>
+    {% endif %}
+  </div>
 
   {# ── Rolling Stats ───────────────────────────────────────────────────────── #}
   {% if sections.rolling_stats %}

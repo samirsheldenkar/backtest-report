@@ -81,12 +81,12 @@ def _format_date_axis(ax: plt.Axes) -> None:
 
 
 def render_portfolio_pnl(data: BacktestData, meta: BacktestMeta) -> SectionOutput:
-    """Render equity curve and drawdown charts.
+    """Render equity curve and drawdown charts combined.
 
     Returns SectionOutput with:
         - section_id: "portfolio_pnl"
-        - figures: {"equity_curve": base64_png, "drawdown": base64_png}
-        - html: minimal div with img tags referencing the figures
+        - figures: {"combined": base64_png}
+        - html: minimal div with img tag referencing the combined figure
     """
     apply_report_style()
 
@@ -97,43 +97,40 @@ def render_portfolio_pnl(data: BacktestData, meta: BacktestMeta) -> SectionOutpu
     cummax = cumulative.cummax()
     drawdown = cumulative / cummax - 1
 
-    # --- Equity Curve ---
-    fig_equity, ax_equity = plt.subplots(figsize=(FIGURE_WIDTH, FIGURE_HEIGHT))
+    # --- Combined Equity & Drawdown Chart ---
+    fig, (ax_equity, ax_dd) = plt.subplots(
+        2, 1, figsize=(FIGURE_WIDTH, FIGURE_HEIGHT * 1.5), sharex=True, gridspec_kw={"height_ratios": [3, 1]}
+    )
+    
+    # Equity Curve
     ax_equity.plot(cumulative.index, cumulative.values, color=POSITIVE_COLOR, linewidth=1.0)
     ax_equity.axhline(y=1.0, color=NEUTRAL_COLOR, linestyle="--", linewidth=0.8, alpha=0.7)
-    ax_equity.set_title("Cumulative Returns")
+    ax_equity.set_title("Cumulative Returns & Drawdown", pad=15)
     ax_equity.set_ylabel("Growth of $1")
-    ax_equity.set_xlabel("")
-    _format_date_axis(ax_equity)
-    equity_base64 = fig_to_base64(fig_equity)
-
-    # --- Drawdown Chart ---
-    fig_dd, ax_dd = plt.subplots(figsize=(FIGURE_WIDTH, FIGURE_HEIGHT))
-    ax_dd.fill_between(
-        drawdown.index, 0, drawdown.values, color=NEGATIVE_COLOR, alpha=0.7
-    )
+    
+    # Drawdown Chart
+    ax_dd.fill_between(drawdown.index, 0, drawdown.values, color=NEGATIVE_COLOR, alpha=0.7)
     ax_dd.axhline(y=0, color=NEUTRAL_COLOR, linestyle="-", linewidth=0.8)
-    ax_dd.set_title("Underwater Plot (Drawdown)")
-    ax_dd.set_ylabel("Drawdown %")
+    ax_dd.set_ylabel("Drawdown")
     ax_dd.set_xlabel("")
-    ax_dd.yaxis.set_major_formatter(
-        matplotlib.ticker.FuncFormatter(lambda x, _: f"{x * 100:.0f}%")
-    )
+    ax_dd.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f"{x * 100:.0f}%"))
+    
     _format_date_axis(ax_dd)
-    drawdown_base64 = fig_to_base64(fig_dd)
+    fig.tight_layout()
+    
+    combined_base64 = fig_to_base64(fig)
 
     html = (
         '<div class="br-portfolio-pnl">'
-        f'<img src="data:image/png;base64,{equity_base64}" '
-        f'alt="Cumulative Returns" style="width:100%;" />'
-        f'<img src="data:image/png;base64,{drawdown_base64}" alt="Drawdown" style="width:100%;" />'
+        f'<img src="data:image/png;base64,{combined_base64}" '
+        f'alt="Cumulative Returns and Drawdown" style="width:100%;" />'
         "</div>"
     )
 
     return SectionOutput(
         section_id="portfolio_pnl",
         html=html,
-        figures={"equity_curve": equity_base64, "drawdown": drawdown_base64},
+        figures={"combined": combined_base64},
     )
 
 
@@ -423,15 +420,16 @@ def render_portfolio_stats(data: BacktestData, meta: BacktestMeta) -> SectionOut
         worst = returns.min()
     metrics.append(("Worst Day", _format_metric_value(worst, "Worst Day")))
 
-    # Build HTML table
-    lines = [
-        '<table class="br-portfolio-stats">',
-        "<thead><tr><th>Metric</th><th>Value</th></tr></thead>",
-        "<tbody>",
-    ]
+    # Build HTML metric cards grid
+    lines = ['<div class="br-metrics-grid">']
     for name, value in metrics:
-        lines.append(f"<tr><td>{name}</td><td class='br-metric-value'>{value}</td></tr>")
-    lines.extend(["</tbody>", "</table>"])
+        lines.append(f"""
+        <div class="br-metric-card">
+            <div class="br-metric-name">{name}</div>
+            <div class="br-metric-value">{value}</div>
+        </div>
+        """)
+    lines.append('</div>')
 
     html = "\n".join(lines)
     return SectionOutput(section_id="portfolio_stats", html=html)

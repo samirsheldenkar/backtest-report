@@ -250,34 +250,49 @@ figcaption, .br-figure-caption {
   font-weight: 600;
 }
 
-/* Portfolio stats table */
-.br-portfolio-stats {
-  width: 50%;
-  border-collapse: collapse;
-  font-size: 9pt;
+/* Summary Dashboard */
+.br-summary-dashboard {
+  page-break-inside: avoid;
+  margin-bottom: var(--br-spacing-xl);
 }
 
-.br-portfolio-stats th {
-  text-align: left;
-  padding: 4px 8px;
-  border-bottom: 2px solid var(--br-col-border);
-  font-weight: 600;
-  color: var(--br-col-header);
+.br-no-page-break {
+  page-break-inside: avoid;
 }
 
-.br-portfolio-stats td {
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--br-col-border);
+/* Metrics Grid */
+.br-metrics-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--br-spacing-sm);
+  margin-bottom: var(--br-spacing-md);
 }
 
-.br-portfolio-stats td:last-child {
-  text-align: right;
+.br-metric-card {
+  flex: 1 1 calc(20% - var(--br-spacing-sm)); /* 5 columns roughly */
+  background-color: var(--br-col-table-stripe);
+  border: 1px solid var(--br-col-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.br-metric-name {
+  font-size: 7.5pt;
+  color: var(--br-col-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
 }
 
 .br-metric-value {
   font-family: var(--br-font-data);
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  font-size: 10pt;
+  font-weight: 600;
+  color: var(--br-col-text);
 }
 
 /* Instrument table */
